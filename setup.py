@@ -3,13 +3,13 @@ from setuptools import setup
 from torch import cuda
 from torch.utils.cpp_extension import BuildExtension, CUDAExtension
 
-curope_dir = "src/model/encoder/backbone/croco/curope"
+curope_dir = "anysplat/model/encoder/backbone/croco/curope"
 all_cuda_archs = cuda.get_gencode_flags().replace("compute=", "arch=").split()
 
 setup(
     ext_modules=[
         CUDAExtension(
-            name="src.model.encoder.backbone.croco.curope.curope",
+            name="anysplat.model.encoder.backbone.croco.curope.curope",
             sources=[
                 f"{curope_dir}/curope.cpp",
                 f"{curope_dir}/kernels.cu",
