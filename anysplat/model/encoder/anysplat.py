@@ -329,7 +329,7 @@ class EncoderAnySplat(Encoder[EncoderAnySplatCfg]):
         image: torch.Tensor,
         global_step: int = 0,
         visualization_dump: Optional[dict] = None,
-    ) -> Gaussians:
+    ) -> EncoderOutput:
         device = image.device
         b, v, _, h, w = image.shape
         distill_infos = {}
@@ -474,6 +474,8 @@ class EncoderAnySplat(Encoder[EncoderAnySplatCfg]):
                 )
                 neural_pts_list.append(pts_all[b_i][conf_valid_mask[b_i]])
 
+        valid_count = [p.shape[0] for p in neural_pts_list]
+
         max_voxels = max(f.shape[0] for f in neural_feats_list)
         neural_feats = self.pad_tensor_list(
             neural_feats_list, (max_voxels,), value=-1e10
@@ -505,10 +507,6 @@ class EncoderAnySplat(Encoder[EncoderAnySplatCfg]):
             opacity_threshold = self.cfg.opacity_threshold
             gaussian_usage = opacity > opacity_threshold  # (B, N)
 
-            print(
-                f"based on opacity threshold {opacity_threshold}, pruned {gaussian_usage.shape[1] - neural_pts.shape[1]} gaussians out of {gaussian_usage.shape[1]}"
-            )
-
             if (gaussian_usage.sum() / gaussian_usage.numel()) > self.cfg.gs_keep_ratio:
                 # rank by opacity
                 num_keep = int(gaussian_usage.shape[1] * self.cfg.gs_keep_ratio)
@@ -523,10 +521,7 @@ class EncoderAnySplat(Encoder[EncoderAnySplatCfg]):
                 neural_feats[gaussian_usage].view(b, -1, self.raw_gs_dim).contiguous()
             )
             opacity = opacity[gaussian_usage].view(b, -1).contiguous()
-
-            print(
-                f"finally pruned {gaussian_usage.shape[1] - neural_pts.shape[1]} gaussians out of {gaussian_usage.shape[1]}"
-            )
+            valid_count = [neural_pts.shape[1]] * b
 
         gaussians = self.gaussian_adapter.forward(
             neural_pts,
@@ -545,18 +540,9 @@ class EncoderAnySplat(Encoder[EncoderAnySplatCfg]):
 
         infos = {}
         infos["scene_scale"] = scene_scale
+        infos["valid_count"] = neural_pts.new_tensor(valid_count, dtype=torch.long)
         infos["voxelize_ratio"] = densities.shape[1] / (h * w * v)
 
-        print(
-            f"scene scale: {scene_scale:.3f}, pixel-wise num: {h*w*v}, after voxelize: {neural_pts.shape[1]}, voxelize ratio: {infos['voxelize_ratio']:.3f}"
-        )
-        print(
-            f"Gaussians attributes: \n"
-            f"opacities: mean: {gaussians.opacities.mean()}, min: {gaussians.opacities.min()}, max: {gaussians.opacities.max()} \n"
-            f"scales: mean: {gaussians.scales.mean()}, min: {gaussians.scales.min()}, max: {gaussians.scales.max()}"
-        )
-
-        print("B:", b, "V:", v, "H:", h, "W:", w)
         extrinsic_padding = (
             torch.tensor([0, 0, 0, 1], device=device, dtype=extrinsic.dtype)
             .view(1, 1, 1, 4)
@@ -574,7 +560,7 @@ class EncoderAnySplat(Encoder[EncoderAnySplatCfg]):
                 extrinsic=torch.cat([extrinsic, extrinsic_padding], dim=2).inverse(),
                 intrinsic=intrinsic,
             ),
-            depth_dict=dict(depth=depth_map, conf_valid_mask=conf_valid_mask),
+            depth_dict=dict(depth=depth_map, depth_conf=depth_conf, conf_valid_mask=conf_valid_mask),
             infos=infos,
             distill_infos=distill_infos,
         )
