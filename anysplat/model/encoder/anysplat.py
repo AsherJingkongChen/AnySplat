@@ -42,8 +42,6 @@ from .encoder import Encoder, EncoderOutput
 from .heads import head_factory
 from .visualization.encoder_visualizer_epipolar_cfg import EncoderVisualizerEpipolarCfg
 
-root_path = os.path.abspath(".")
-sys.path.append(root_path)
 from anysplat.model.encoder.heads.head_modules import TransformerBlockSelfAttn
 from anysplat.model.encoder.vggt.heads.dpt_head import DPTHead
 from anysplat.model.encoder.vggt.layers.mlp import Mlp
