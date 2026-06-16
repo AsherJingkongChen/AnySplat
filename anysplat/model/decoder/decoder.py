@@ -38,8 +38,8 @@ class Decoder(nn.Module, ABC, Generic[T]):
         gaussians: Gaussians,
         extrinsics: Float[Tensor, "batch view 4 4"],
         intrinsics: Float[Tensor, "batch view 3 3"],
-        near: Float[Tensor, "batch view"],
-        far: Float[Tensor, "batch view"],
+        near: float,
+        far: float,
         image_shape: tuple[int, int],
         depth_mode: DepthRenderingMode | None = None,
     ) -> DecoderOutput:
