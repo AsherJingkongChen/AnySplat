@@ -537,8 +537,9 @@ class EncoderAnySplat(Encoder[EncoderAnySplatCfg]):
             )
 
         infos = {}
+        infos["feats"] = anchor_feats
         infos["scene_scale"] = scene_scale
-        infos["valid_count"] = neural_pts.new_tensor(valid_count, dtype=torch.long)
+        infos["valid_count"] = valid_count
         infos["voxelize_ratio"] = densities.shape[1] / (h * w * v)
 
         extrinsic_padding = (
