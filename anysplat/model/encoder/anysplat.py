@@ -437,14 +437,14 @@ class EncoderAnySplat(Encoder[EncoderAnySplatCfg]):
             else:
                 conf_valid_mask = torch.ones_like(depth_conf, dtype=torch.bool)
 
-        # dpt style gs_head input format
-        out = self.gaussian_param_head(
-            aggregated_tokens_list,
-            pts_all.flatten(0, 1).permute(0, 3, 1, 2),
-            image,
-            patch_start_idx=patch_start_idx,
-            image_size=(h, w),
-        )
+            # dpt style gs_head input format
+            out = self.gaussian_param_head(
+                aggregated_tokens_list,
+                pts_all.flatten(0, 1).permute(0, 3, 1, 2),
+                image,
+                patch_start_idx=patch_start_idx,
+                image_size=(h, w),
+            )
 
         del aggregated_tokens_list, patch_start_idx
         torch.cuda.empty_cache()
