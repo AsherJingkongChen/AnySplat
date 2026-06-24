@@ -446,87 +446,87 @@ class EncoderAnySplat(Encoder[EncoderAnySplatCfg]):
                 image_size=(h, w),
             )
 
-        del aggregated_tokens_list, patch_start_idx
-        torch.cuda.empty_cache()
+            del aggregated_tokens_list, patch_start_idx
+            torch.cuda.empty_cache()
 
-        pts_flat = pts_all.flatten(2, 3)
-        scene_scale = pts_flat.norm(dim=-1).mean().clip(min=1e-8)
+            pts_flat = pts_all.flatten(2, 3)
+            scene_scale = pts_flat.norm(dim=-1).mean().clip(min=1e-8)
 
-        anchor_feats, conf = out[:, :, : self.raw_gs_dim], out[:, :, self.raw_gs_dim]
+            anchor_feats, conf = out[:, :, : self.raw_gs_dim], out[:, :, self.raw_gs_dim]
 
-        neural_feats_list, neural_pts_list = [], []
-        if self.cfg.voxelize:
-            for b_i in range(b):
-                neural_pts, neural_feats = self.voxelizaton_with_fusion(
-                    anchor_feats[b_i],
-                    pts_all[b_i].permute(0, 3, 1, 2).contiguous(),
-                    self.voxel_size,
-                    conf=conf[b_i],
-                )
-                neural_feats_list.append(neural_feats)
-                neural_pts_list.append(neural_pts)
-        else:
-            for b_i in range(b):
-                neural_feats_list.append(
-                    anchor_feats[b_i].permute(0, 2, 3, 1)[conf_valid_mask[b_i]]
-                )
-                neural_pts_list.append(pts_all[b_i][conf_valid_mask[b_i]])
+            neural_feats_list, neural_pts_list = [], []
+            if self.cfg.voxelize:
+                for b_i in range(b):
+                    neural_pts, neural_feats = self.voxelizaton_with_fusion(
+                        anchor_feats[b_i],
+                        pts_all[b_i].permute(0, 3, 1, 2).contiguous(),
+                        self.voxel_size,
+                        conf=conf[b_i],
+                    )
+                    neural_feats_list.append(neural_feats)
+                    neural_pts_list.append(neural_pts)
+            else:
+                for b_i in range(b):
+                    neural_feats_list.append(
+                        anchor_feats[b_i].permute(0, 2, 3, 1)[conf_valid_mask[b_i]]
+                    )
+                    neural_pts_list.append(pts_all[b_i][conf_valid_mask[b_i]])
 
-        valid_count = [p.shape[0] for p in neural_pts_list]
+            valid_count = [p.shape[0] for p in neural_pts_list]
 
-        max_voxels = max(f.shape[0] for f in neural_feats_list)
-        neural_feats = self.pad_tensor_list(
-            neural_feats_list, (max_voxels,), value=-1e10
-        )
-
-        neural_pts = self.pad_tensor_list(
-            neural_pts_list, (max_voxels,), -1e4
-        )  # -1 == invalid voxel
-
-        depths = neural_pts[..., -1].unsqueeze(-1)
-        densities = neural_feats[..., 0].sigmoid()
-
-        assert len(densities.shape) == 2, "the shape of densities should be (B, N)"
-        assert neural_pts.shape[1] > 1, "the number of voxels should be greater than 1"
-
-        opacity = self.map_pdf_to_opacity(densities, global_step).squeeze(-1)
-        if self.cfg.opacity_conf:
-            shift = torch.quantile(depth_conf, self.cfg.conf_threshold)
-            opacity = opacity * torch.sigmoid(depth_conf - shift)[
-                conf_valid_mask
-            ].unsqueeze(
-                0
-            )  # little bit hacky
-
-        # GS Prune, but only works when bs = 1
-        # if want to support bs > 1, need to random prune gaussians based on the rank of opacity like LongLRM
-        # Note: we not prune gaussians here, but we will try it in the future
-        if self.cfg.gs_prune and b == 1:
-            opacity_threshold = self.cfg.opacity_threshold
-            gaussian_usage = opacity > opacity_threshold  # (B, N)
-
-            if (gaussian_usage.sum() / gaussian_usage.numel()) > self.cfg.gs_keep_ratio:
-                # rank by opacity
-                num_keep = int(gaussian_usage.shape[1] * self.cfg.gs_keep_ratio)
-                idx_sort = opacity.argsort(dim=1, descending=True)
-                keep_idx = idx_sort[:, :num_keep]
-                gaussian_usage = torch.zeros_like(gaussian_usage, dtype=torch.bool)
-                gaussian_usage.scatter_(1, keep_idx, True)
-
-            neural_pts = neural_pts[gaussian_usage].view(b, -1, 3).contiguous()
-            depths = depths[gaussian_usage].view(b, -1, 1).contiguous()
-            neural_feats = (
-                neural_feats[gaussian_usage].view(b, -1, self.raw_gs_dim).contiguous()
+            max_voxels = max(f.shape[0] for f in neural_feats_list)
+            neural_feats = self.pad_tensor_list(
+                neural_feats_list, (max_voxels,), value=-1e10
             )
-            opacity = opacity[gaussian_usage].view(b, -1).contiguous()
-            valid_count = [neural_pts.shape[1]] * b
 
-        gaussians = self.gaussian_adapter.forward(
-            neural_pts,
-            depths,
-            opacity,
-            neural_feats[..., 1:].squeeze(2),
-        )
+            neural_pts = self.pad_tensor_list(
+                neural_pts_list, (max_voxels,), -1e4
+            )  # -1 == invalid voxel
+
+            depths = neural_pts[..., -1].unsqueeze(-1)
+            densities = neural_feats[..., 0].sigmoid()
+
+            assert len(densities.shape) == 2, "the shape of densities should be (B, N)"
+            assert neural_pts.shape[1] > 1, "the number of voxels should be greater than 1"
+
+            opacity = self.map_pdf_to_opacity(densities, global_step).squeeze(-1)
+            if self.cfg.opacity_conf:
+                shift = torch.quantile(depth_conf, self.cfg.conf_threshold)
+                opacity = opacity * torch.sigmoid(depth_conf - shift)[
+                    conf_valid_mask
+                ].unsqueeze(
+                    0
+                )  # little bit hacky
+
+            # GS Prune, but only works when bs = 1
+            # if want to support bs > 1, need to random prune gaussians based on the rank of opacity like LongLRM
+            # Note: we not prune gaussians here, but we will try it in the future
+            if self.cfg.gs_prune and b == 1:
+                opacity_threshold = self.cfg.opacity_threshold
+                gaussian_usage = opacity > opacity_threshold  # (B, N)
+
+                if (gaussian_usage.sum() / gaussian_usage.numel()) > self.cfg.gs_keep_ratio:
+                    # rank by opacity
+                    num_keep = int(gaussian_usage.shape[1] * self.cfg.gs_keep_ratio)
+                    idx_sort = opacity.argsort(dim=1, descending=True)
+                    keep_idx = idx_sort[:, :num_keep]
+                    gaussian_usage = torch.zeros_like(gaussian_usage, dtype=torch.bool)
+                    gaussian_usage.scatter_(1, keep_idx, True)
+
+                neural_pts = neural_pts[gaussian_usage].view(b, -1, 3).contiguous()
+                depths = depths[gaussian_usage].view(b, -1, 1).contiguous()
+                neural_feats = (
+                    neural_feats[gaussian_usage].view(b, -1, self.raw_gs_dim).contiguous()
+                )
+                opacity = opacity[gaussian_usage].view(b, -1).contiguous()
+                valid_count = [neural_pts.shape[1]] * b
+
+            gaussians = self.gaussian_adapter.forward(
+                neural_pts,
+                depths,
+                opacity,
+                neural_feats[..., 1:].squeeze(2),
+            )
 
         if visualization_dump is not None:
             visualization_dump["depth"] = rearrange(
